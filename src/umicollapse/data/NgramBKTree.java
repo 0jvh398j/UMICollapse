@@ -9,11 +9,14 @@ import umicollapse.util.BitSet;
 import static umicollapse.util.Utils.charGet;
 import static umicollapse.util.Utils.HASH_CONST;
 import static umicollapse.util.Utils.umiDist;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+
 
 public class NgramBKTree implements DataStructure{
     private Map<BitSet, Integer> umiFreq;
     private int umiLength, ngramSize, maxEdits;
-    private Map<Interval, Node> m;
+    private Long2ObjectOpenHashMap<Node> m;
 
     @Override
     public void init(Map<BitSet, Integer> umiFreq, int umiLength, int maxEdits){
@@ -22,7 +25,7 @@ public class NgramBKTree implements DataStructure{
         this.maxEdits = maxEdits;
         ngramSize = umiLength / (maxEdits + 1);
 
-        m = new HashMap<Interval, Node>();
+        m = new Long2ObjectOpenHashMap<Node>();
 
         for(Map.Entry<BitSet, Integer> e : umiFreq.entrySet())
             insert(e.getKey(), e.getValue());
@@ -32,11 +35,13 @@ public class NgramBKTree implements DataStructure{
     @Override
     public Set<BitSet> removeNear(BitSet umi, int k, int maxFreq){
         Set<BitSet> res = new HashSet<>();
-
         for(int i = 0; i < maxEdits + 1; i++){
-            Interval in = new Interval(umi, i * ngramSize, i == maxEdits ? (umiLength - 1) : ((i + 1) * ngramSize - 1));
+            int low = i * ngramSize;
+            int high = i == maxEdits ? (umiLength - 1) : ((i + 1) * ngramSize - 1);
+            long in = ((long)low) | (((long)high) << 32);
 
-            if(m.containsKey(in)){
+            Node n = m.getOrDefault(in, null);
+            if (n != null && n.is_equal_interval(low, high, umi)) {
                 Node curr = m.get(in);
 
                 if(maxFreq != Integer.MAX_VALUE) // always remove the queried UMI
@@ -51,9 +56,11 @@ public class NgramBKTree implements DataStructure{
 
     private void insert(BitSet umi, int freq){
         for(int i = 0; i < maxEdits + 1; i++){
-            Interval in = new Interval(umi, i * ngramSize, i == maxEdits ? (umiLength - 1) : ((i + 1) * ngramSize - 1));
-
-            if(m.containsKey(in)){
+            int low = i * ngramSize;
+            int high = (i == maxEdits ? (umiLength - 1) : ((i + 1) * ngramSize - 1));
+            long in = ((long)low) | (((long)high) << 32);
+            Node n = m.getOrDefault(in, null);
+            if(n != null && n.is_equal_interval(low, high, umi)){
                 int length = umiLength - ((i == maxEdits ? (umiLength - 1) : ((i + 1) * ngramSize - 1)) - i * ngramSize + 1);
                 insertBKTree(m.get(in), umi, length, freq);
             }else{
@@ -128,6 +135,14 @@ public class NgramBKTree implements DataStructure{
             this.subtreeExists = true;
             this.freq = freq;
             this.minFreq = freq;
+        }
+        boolean is_equal_interval(int low, int high, BitSet others)
+        {
+            for(int i = low; i <= high; i++){
+                if(charGet(umi, i) != charGet(others, i))
+                    return false;
+            }
+            return true;
         }
 
         Node initNode(int k, BitSet umi, int umiLength, int freq){
